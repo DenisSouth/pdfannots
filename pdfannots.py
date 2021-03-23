@@ -136,7 +136,9 @@ class Page:
 
 
 class Annotation:
-    def __init__(self, page, tagname, coords=None, rect=None, contents=None, author=None):
+    def __init__(self, page, tagname, coords=None, rect=None, contents=None, author=None, selection_colour=None):
+        if selection_colour is None:
+            selection_colour = [255, 255, 255]
         self.page = page
         self.tagname = tagname
         if contents == '':
@@ -159,6 +161,8 @@ class Annotation:
                 yvals = [y0, y1, y2, y3]
                 box = (min(xvals), min(yvals), max(xvals), max(yvals))
                 self.boxes.append(box)
+        # selection_colour is RGB colour of rectangle, underline, selection e.t.c.  
+        self.selection_colour = selection_colour
 
     def capture(self, text):
         if text == '\n':
@@ -238,6 +242,50 @@ class Pos:
         return (x, y)
 
 
+def convert_colour(colour_raw, opacity):
+    """
+    IN "colour_raw" may be None, int list or float list 
+        len==1 >> grayscale, len==3 >> RGB, len==4 >> SMYC
+        values between 0 and 1
+        "opacity" may be None, int or float
+        values between 0 and 1
+        opacity 1 >> colorful, opacity 0 >> near white color
+    OUT int list [R,G,B]
+    """
+    def rgba2rgb(r, g, b, a):
+        # https://marcodiiga.github.io/rgba-to-rgb-conversion
+        r = round((1 - a) * 255 + a * r)
+        g = round((1 - a) * 255 + a * g)
+        b = round((1 - a) * 255 + a * b)
+        return [r, g, b]
+
+    def graya2rgb(g, a):
+        return rgba2rgb(g, g, g, a)
+
+    def cmyka2rgb(c, m, y, k, a):
+        # https://www.rapidtables.com/convert/color/cmyk-to-rgb.html
+        r = int(255 * (1.0 - c / 255.0) * (1.0 - k / 255.0))
+        g = int(255 * (1.0 - m / 255.0) * (1.0 - k / 255.0))
+        b = int(255 * (1.0 - y / 255.0) * (1.0 - k / 255.0))
+        return rgba2rgb(r, g, b, a)
+
+    if colour_raw is None:
+        colour_raw = [1] * 3
+
+    if opacity is None or opacity == 0:
+        opacity = 1
+
+    colour_norm = [x * 255.0 for x in colour_raw]
+
+    if len(colour_norm) == 1:
+        return graya2rgb(*colour_norm, opacity)
+
+    elif len(colour_norm) == 3:
+        return rgba2rgb(*colour_norm, opacity)
+
+    elif len(colour_norm) == 4:
+        return cmyka2rgb(*colour_norm, opacity)
+
 def getannots(pdfannots, page):
     annots = []
     for pa in pdfannots:
@@ -257,11 +305,38 @@ def getannots(pdfannots, page):
         author = pdftypes.resolve1(pa.get('T'))
         if author is not None:
             author = pdfminer.utils.decode_text(author)
-        a = Annotation(page, subtype.name, coords, rect, contents, author=author)
+        # https://www.adobe.com/content/dam/acom/en/devnet/pdf/pdfs/PDF32000_2008.pdf
+        # Page 392 and Page 400
+        selection_colour_raw = pdftypes.resolve1(pa.get('C'))
+        selection_opacity_raw = pdftypes.resolve1(pa.get('CA'))
+        selection_colour = convert_colour(selection_colour_raw, selection_opacity_raw)
+        a = Annotation(page, subtype.name, coords, rect, contents, author=author, selection_colour=selection_colour)
         annots.append(a)
 
     return annots
 
+
+class PrettyPrinter_feed:
+    """
+    Pretty-printer return structure
+    """
+    def __init__(self, text, comment, rect, selection_colour, tagname, page_number, title):
+        """
+        text        String of text from selection
+        comment     String of comment from selection
+        tagname     String with type of selection
+        selection_colour int list with selection colour [R,G,B]
+        rect int    list of selection coordinates
+        P_number    int page number
+        P_title     String of fext page title
+        """
+        self.text = text
+        self.comment = comment
+        self.tagname = tagname
+        self.selection_colour = selection_colour
+        self.rect = rect
+        self.P_number = page_number
+        self.P_title = title
 
 class PrettyPrinter:
     """
@@ -396,6 +471,32 @@ class PrettyPrinter:
     def printall(self, annots, outfile):
         for a in annots:
             print(self.format_annot(a, a.tagname), file=outfile)
+
+    def return_all(self, annots):
+        """
+        section create a list of selections with attributes
+        """
+        temp = []
+        for annot in annots:
+            rawtext = annot.gettext()
+            text = " ".join([l for l in rawtext.strip().splitlines() if l] if rawtext else []).strip()
+            comment = " ".join([l for l in annot.contents.splitlines() if l] if annot.contents else []).strip()
+
+            apos = annot.getstartpos()
+            o = self.nearest_outline(apos) if apos else None
+            title = ""
+            if o:
+                title = o.title
+            page_number = annot.page.pageno + 1
+
+            temp.append(PrettyPrinter_feed(text=text,
+                                           comment=comment,
+                                           rect=annot.rect,
+                                           selection_colour=annot.selection_colour,
+                                           tagname=annot.tagname,
+                                           page_number=page_number,
+                                           title=title))
+        return temp
 
     def printall_grouped(self, sections, annots, outfile):
         """
