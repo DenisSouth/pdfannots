@@ -320,23 +320,23 @@ class PrettyPrinter_feed:
     """
     Pretty-printer return structure
     """
-    def __init__(self, text, comment, rect, selection_colour, tagname, page_number, title):
+    def __init__(self, text, comment, rect, selection_colour, tagname, page_number, chap_title):
         """
         text        String of text from selection
         comment     String of comment from selection
         tagname     String with type of selection
         selection_colour int list with selection colour [R,G,B]
         rect int    list of selection coordinates
-        P_number    int page number
-        P_title     String of fext page title
+        page_number    int page number
+        chap_title     String of fext page title
         """
         self.text = text
         self.comment = comment
         self.tagname = tagname
         self.selection_colour = selection_colour
         self.rect = rect
-        self.P_number = page_number
-        self.P_title = title
+        self.page_number = page_number
+        self.chap_title = chap_title
 
 class PrettyPrinter:
     """
@@ -484,9 +484,9 @@ class PrettyPrinter:
 
             apos = annot.getstartpos()
             o = self.nearest_outline(apos) if apos else None
-            title = ""
+            chap_title = ""
             if o:
-                title = o.title
+                chap_title = o.title
             page_number = annot.page.pageno + 1
 
             temp.append(PrettyPrinter_feed(text=text,
@@ -495,7 +495,7 @@ class PrettyPrinter:
                                            selection_colour=annot.selection_colour,
                                            tagname=annot.tagname,
                                            page_number=page_number,
-                                           title=title))
+                                           chap_title=chap_title))
         return temp
 
     def printall_grouped(self, sections, annots, outfile):
